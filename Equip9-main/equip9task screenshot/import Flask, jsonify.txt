@@ -1,0 +1,47 @@
+from flask import Flask, jsonify
+import boto3
+from botocore.exceptions import NoCredentialsError, PartialCredentialsError
+
+app = Flask(__name__)
+
+# AWS S3 client
+s3_client = boto3.client('s3')
+
+# Configure your S3 bucket name
+BUCKET_NAME = 'your-bucket-name'
+
+@app.route('/list-bucket-content', defaults={'path': ''}, methods=['GET'])
+@app.route('/list-bucket-content/<path:path>', methods=['GET'])
+def list_bucket_content(path):
+    try:
+        # Fetch objects from the bucket
+        response = s3_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=path, Delimiter='/')
+
+        if 'Contents' not in response and 'CommonPrefixes' not in response:
+            return jsonify({"content": []})
+
+        content = []
+
+        # Get directories
+        if 'CommonPrefixes' in response:
+            content.extend([prefix['Prefix'].rstrip('/') for prefix in response['CommonPrefixes']])
+
+        # Get files
+        if 'Contents' in response:
+            content.extend([item['Key'] for item in response['Contents'] if item['Key'] != path])
+
+        # Remove prefix path for relative names
+        if path:
+            content = [item[len(path):].lstrip('/') for item in content]
+
+        return jsonify({"content": content})
+
+    except NoCredentialsError:
+        return jsonify({"error": "AWS credentials not configured properly"}), 500
+    except PartialCredentialsError:
+        return jsonify({"error": "Incomplete AWS credentials"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
